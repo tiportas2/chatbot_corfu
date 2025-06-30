@@ -256,12 +256,14 @@ with tab1:
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+    
 
-    # Input no fundo
+    # Input com submit via Enter
     st.divider()
-    user_input = st.text_input("✏️ Faz a tua pergunta:", placeholder="Escreve aqui a tua questão...", key="pergunta_input")
-    if st.button("Enviar", key="botao_enviar"):
-        if user_input.strip():
+    with st.form(key="form_pergunta"):
+        user_input = st.text_input("✏️ Faz a tua pergunta:", placeholder="Escreve aqui a tua questão...", key="pergunta_input")
+        submitted = st.form_submit_button("Enviar")
+        if submitted and user_input.strip():
             st.session_state.primeira_interacao = False
             st.session_state.chat_history.append({"role": "user", "content": user_input})
             resposta = responder_pergunta(user_input)
