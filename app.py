@@ -132,7 +132,7 @@ def classificar_pergunta(pergunta):
 
     nomes_simples = {
         "vasco", "andre", "pato", "joao", "jota",
-        "diogo", "rodrigo", "miranda", "ralph", "piloto"
+        "diogo", "rodrigo", "miranda", "ralph", "piloto", "paty"
     }
 
     nomes_compostos = {
@@ -267,33 +267,40 @@ def responder_pessoal(pergunta, resultados):
         "miranda": "rodrigo_miranda",
         "mosieur": "rodrigo_pato",
         "monsieur ralph": "rodrigo_pato",
-        "cara de ovo":"diogo_miranda"
+        "cara de ovo": "diogo_miranda"
     }
 
     pergunta_lower = pergunta.lower()
-    nome_mencionado = next((mapa_nomes[n] for n in mapa_nomes if n in pergunta_lower), None)
 
-    if nome_mencionado:
-        chunks_filtrados = [r for r in participantes_chunks if nome_mencionado in r.metadata["id"].lower()]
+    # Verifica se há match com um ou mais nomes no mapa
+    nomes_encontrados = [mapa_nomes[n] for n in mapa_nomes if n in pergunta_lower]
+
+    # Tratamento especial para a alcunha ambígua "paty"
+    if "paty" in pergunta_lower:
+        nomes_encontrados = ["vasco_machado", "rodrigo_pato"]
+
+    # Filtrar os chunks com base nos IDs encontrados
+    if nomes_encontrados:
+        chunks_filtrados = [r for r in participantes_chunks if r.metadata["id"].lower() in nomes_encontrados]
     else:
         chunks_filtrados = participantes_chunks
 
     contexto = "\n\n".join(r.page_content for r in chunks_filtrados)
 
     personagens = []
-    nomes_encontrados = set(r.metadata["id"].lower() for r in chunks_filtrados)
+    ids_encontrados = set(r.metadata["id"].lower() for r in chunks_filtrados)
 
-    if "vasco_machado" in nomes_encontrados:
-        personagens.append("Vasco é uma das patys do grupo, fã de batidos e de teorias da conspiração domésticas.")
-    if "andre_marques" in nomes_encontrados:
+    if "vasco_machado" in ids_encontrados:
+        personagens.append("Vasco é uma das Patys do grupo — tem cabelo rapado mas decidiu lavar o cabelo antes da praia, e ainda pediu um batido tropical à influencer. É um brunch ambulante.")
+    if "andre_marques" in ids_encontrados:
         personagens.append("André é o piloto do grupo que só pensa em 'comer' gajas (ou seja, os aviões são as mulheres que ele conhece na noite).")
-    if "rodrigo_pato" in nomes_encontrados:
-        personagens.append("Rodrigo Pato tem um alter ego chamado Monsieur Ralph. É o menos pontual do grupo.")
-    if "joao_gomes" in nomes_encontrados:
+    if "rodrigo_pato" in ids_encontrados:
+        personagens.append("Rodrigo Pato é a outra Paty — sensível e dramático, lavou o cabelo na piscina do hotel antes da praia e ficou traumatizado por isso.")
+    if "joao_gomes" in ids_encontrados:
         personagens.append("Jota é o bisonte de ginásio e o TVDE indiano.")
-    if "diogo_miranda" in nomes_encontrados:
+    if "diogo_miranda" in ids_encontrados:
         personagens.append("Diogo é o influencer com passado alcoólico.")
-    if "rodrigo_miranda" in nomes_encontrados:
+    if "rodrigo_miranda" in ids_encontrados:
         personagens.append("Rodrigo Miranda é o autista espiritual do grupo.")
 
     if not personagens:
@@ -301,12 +308,22 @@ def responder_pessoal(pergunta, resultados):
 
     personagem = "\n\n".join(personagens)
 
+    # Gera a descrição de nomes mencionados para o prompt
+    if nomes_encontrados:
+        if len(nomes_encontrados) == 1:
+            descricao_nomes = f"o participante {nomes_encontrados[0].replace('_', ' ').title()}"
+        else:
+            lista_formatada = ', '.join(n.replace('_', ' ').title() for n in nomes_encontrados)
+            descricao_nomes = f"os participantes {lista_formatada}"
+    else:
+        descricao_nomes = "um dos participantes"
+
     system_message = f"""
 Estás a responder como um amigo muito próximo deste grupo de viagem.
 
 Responde com base no contexto abaixo, mantendo o tom divertido, exagerado e cheio de piadas internas. Usa o estilo real do grupo e evita parecer artificial ou polido demais.
 
-Se a pergunta for sobre o participante {nome_mencionado}, deves:
+Se a pergunta for sobre {descricao_nomes}, deves:
 - Reforçar os traços mais marcantes da personagem.
 - Usar eventos reais das viagens (presentes no contexto).
 - Inventar apenas se for plausível e em linha com o estilo do grupo.
@@ -322,6 +339,7 @@ Se não souberes, responde com humor e estilo. Nunca respondas como uma IA.
         {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
     ]
     return llm.invoke(mensagens).content
+
 
 def responder_generico(pergunta, resultados):
     # Extrair os documentos (ignorando os scores)
