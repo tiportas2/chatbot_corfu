@@ -18,6 +18,9 @@ from langchain.text_splitter import CharacterTextSplitter
 from pathlib import Path
 from PIL import Image
 
+import unicodedata
+import re
+
 import base64
 from io import BytesIO
 
@@ -114,86 +117,250 @@ chroma_db = criar_ou_carregar_faiss(docs_formatados, embedding_model)
 # ======================
 # 5️⃣ Funções RAG
 # ======================
+
+# ======================
+# 
+# ======================
+def normalizar(texto):
+    texto = texto.lower()
+    texto = unicodedata.normalize('NFD', texto)
+    texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
+    return texto
+
 def classificar_pergunta(pergunta):
-    nomes = ["vasco", "andré", "pato", "joão", "jota", "diogo", "rodrigo", "miranda", "ralph"]
-    palavras_factuais = [
-        "voo", "voos", "data", "datas", "partida", "chegada", "hora", "preço", "custos",
-        "aluguer", "seguro", "atividade", "atividades", "cruzeiro", "excursão", "passeio", "programa"
-    ]
-    if any(nome in pergunta.lower() for nome in nomes):
-        return "personalizada"
-    if any(palavra in pergunta.lower() for palavra in palavras_factuais):
+    pergunta_norm = normalizar(pergunta)
+
+    nomes_simples = {
+        "vasco", "andre", "pato", "joao", "jota",
+        "diogo", "rodrigo", "miranda", "ralph", "piloto"
+    }
+
+    nomes_compostos = {
+        "monsieur ralph", "cara de ovo"
+    }
+
+    palavras_factuais = {
+        "voo", "voos", "voar", "chegada", "chegar", "chegou",
+        "partida", "partir", "data", "datas", "hora",
+        "preco", "preço", "custos", "custo", "custaram",
+        "valor", "pagamento", "quanto", "quantos",
+        "aluguer", "seguro", "atividade", "atividades",
+        "cruzeiro", "excursao", "passeio", "programa",
+        "porto", "gruta", "bilhete", "confirmacao",
+        "condutor", "condutores", "motorista", "carta"
+    }
+
+    palavras_pessoais = {
+        "alcunha", "alcunhas", "apelido", "nome", "personagem", "quem é"
+    }
+
+    # Detetar nomes simples com regex (palavras isoladas)
+    if any(re.search(rf'\b{nome}\b', pergunta_norm) for nome in nomes_simples):
+        return "pessoal"
+
+    # Detetar nomes compostos ou termos pessoais com match direto
+    if any(term in pergunta_norm for term in nomes_compostos.union(palavras_pessoais)):
+        return "pessoal"
+
+    if any(p in pergunta_norm for p in palavras_factuais):
         return "factual"
-    return "personalizada"
+
+    return "generica"
+
+
+# ======================
+# 
+# ======================
+def rerank_heuristico(resultados_com_score, pergunta):
+    pergunta_lower = pergunta.lower()
+
+    # Termos típicos de perguntas factuais
+    termos_prioridade = [
+        "voo", "voos", "ida", "regresso", "partida", "chegada",
+        "escalas", "paris", "milao", "corfu", "aeroporto", "datas"
+    ]
+
+    # Nomes associados a participantes
+    termos_pessoais = ["vasco", "andre", "pato", "joao", "jota", "diogo", "rodrigo", "miranda", "ralph"]
+
+    # Inferir tipo de pergunta
+    if any(t in pergunta_lower for t in termos_prioridade):
+        tipo_esperado = "logistica"
+    elif any(n in pergunta_lower for n in termos_pessoais):
+        tipo_esperado = "participantes"
+    else:
+        tipo_esperado = None
+
+    # Opcional: deteção de nome pessoal mencionado (para reforçar chunks certos)
+    nome_mencionado = next((n for n in termos_pessoais if n in pergunta_lower), None)
+
+    def pontuar(r, score):
+        bonus = 0
+
+        # Pontos por termos factuais no conteúdo
+        bonus += 2 * sum(t in r.page_content.lower() for t in termos_prioridade)
+
+        # Pontos por tipo correto (logistica ou participantes)
+        if tipo_esperado and r.metadata.get("tipo") == tipo_esperado:
+            bonus += 3
+
+        # Pontos por id coincidir com nome mencionado
+        if nome_mencionado and nome_mencionado in r.metadata.get("id", "").lower():
+            bonus += 3
+
+        return score - 0.1 * bonus
+
+    return sorted(resultados_com_score, key=lambda r_score: pontuar(*r_score))
+# ======================
+# 
+# ======================
+def responder_factual(pergunta, resultados):
+    # Extrair só os documentos (ignorando os scores por agora)
+    documentos = [r for r, _ in resultados]
+
+    # Filtrar chunks do tipo 'logistica'
+    logistica_chunks = [r for r in documentos if r.metadata["tipo"] == "logistica"]
+    termos_relevantes = ["voo", "seguro", "carro", "chegada", "partida", "corfu"]
+
+    # Dar prioridade aos chunks mais relevantes semanticamente
+    prioridade_chunks = [
+        r for r in logistica_chunks
+        if any(t in r.page_content.lower() for t in termos_relevantes)
+    ]
+
+    # Se houver chunks com termos relevantes, usa esses; senão, usa todos os de logística
+    contexto = "\n\n".join(r.page_content for r in prioridade_chunks) if prioridade_chunks else "\n\n".join(r.page_content for r in logistica_chunks)
+
+    system_message = (
+    "Estás a responder como um assistente de viagem. Responde apenas com base no contexto abaixo, que diz respeito à viagem a Corfu em agosto de 2025. "
+    "Sê direto, factual e não inventes informação. Se não souberes, diz que não há dados suficientes.\n\n"
+    "Exemplos:\n"
+    "- Pergunta: 'Qual é o seguro do carro?' → Resposta: 'O seguro é da Collinson, custa 55,80€ e cobre danos e roubo de 8 a 14 de agosto em Corfu.'\n"
+    "- Pergunta: 'Quanto custaram os carros?' → Resposta: 'O aluguer dos carros foi de 117,40€ por pessoa.'\n"
+    "- Pergunta: 'Quem são os condutores do carro?' → Resposta: 'Os condutores são Rodrigo Miranda e Rodrigo Pato, conforme indicado na apólice do seguro.'"
+    )
+
+    mensagens = [
+        {"role": "system", "content": system_message},
+        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
+    ]
+    return llm.invoke(mensagens).content
+
+def responder_pessoal(pergunta, resultados):
+    # Extrair apenas os documentos
+    documentos = [r for r, _ in resultados]
+
+    participantes_chunks = [r for r in documentos if r.metadata["tipo"] == "participantes"]
+
+    # Mapeamento robusto de nomes/alcunhas → id dos participantes
+    mapa_nomes = {
+        "vasco": "vasco_machado",
+        "andre": "andre_marques",
+        "andré": "andre_marques",
+        "pato": "rodrigo_pato",
+        "ralph": "rodrigo_pato",
+        "joao": "joao_gomes",
+        "joão": "joao_gomes",
+        "jota": "joao_gomes",
+        "diogo": "diogo_miranda",
+        "rodrigo": "rodrigo_miranda",
+        "miranda": "rodrigo_miranda",
+        "mosieur": "rodrigo_pato",
+        "monsieur ralph": "rodrigo_pato",
+        "cara de ovo":"diogo_miranda"
+    }
+
+    pergunta_lower = pergunta.lower()
+    nome_mencionado = next((mapa_nomes[n] for n in mapa_nomes if n in pergunta_lower), None)
+
+    if nome_mencionado:
+        chunks_filtrados = [r for r in participantes_chunks if nome_mencionado in r.metadata["id"].lower()]
+    else:
+        chunks_filtrados = participantes_chunks
+
+    contexto = "\n\n".join(r.page_content for r in chunks_filtrados)
+
+    personagens = []
+    nomes_encontrados = set(r.metadata["id"].lower() for r in chunks_filtrados)
+
+    if "vasco_machado" in nomes_encontrados:
+        personagens.append("Vasco é uma das patys do grupo, fã de batidos e de teorias da conspiração domésticas.")
+    if "andre_marques" in nomes_encontrados:
+        personagens.append("André é o piloto do grupo que só pensa em 'comer' gajas (ou seja, os aviões são as mulheres que ele conhece na noite).")
+    if "rodrigo_pato" in nomes_encontrados:
+        personagens.append("Rodrigo Pato tem um alter ego chamado Monsieur Ralph. É o menos pontual do grupo.")
+    if "joao_gomes" in nomes_encontrados:
+        personagens.append("Jota é o bisonte de ginásio e o TVDE indiano.")
+    if "diogo_miranda" in nomes_encontrados:
+        personagens.append("Diogo é o influencer com passado alcoólico.")
+    if "rodrigo_miranda" in nomes_encontrados:
+        personagens.append("Rodrigo Miranda é o autista espiritual do grupo.")
+
+    if not personagens:
+        personagens.append("Estás a falar de um dos participantes da viagem, responde com humor e estilo pessoal.")
+
+    personagem = "\n\n".join(personagens)
+
+    system_message = f"""
+Estás a responder como um amigo muito próximo deste grupo de viagem.
+
+Responde com base no contexto abaixo, mantendo o tom divertido, exagerado e cheio de piadas internas. Usa o estilo real do grupo e evita parecer artificial ou polido demais.
+
+Se a pergunta for sobre o participante {nome_mencionado}, deves:
+- Reforçar os traços mais marcantes da personagem.
+- Usar eventos reais das viagens (presentes no contexto).
+- Inventar apenas se for plausível e em linha com o estilo do grupo.
+- Evitar repetir literalmente o conteúdo — interpreta-o de forma criativa.
+
+Se não souberes, responde com humor e estilo. Nunca respondas como uma IA.
+
+{personagem}
+"""
+
+    mensagens = [
+        {"role": "system", "content": system_message},
+        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
+    ]
+    return llm.invoke(mensagens).content
+
+def responder_generico(pergunta, resultados):
+    # Extrair os documentos (ignorando os scores)
+    documentos = [r for r, _ in resultados]
+
+    # Pega nos primeiros 5 documentos apenas
+    contexto = "\n\n".join(r.page_content for r in documentos[:5])
+
+    system_message = (
+        "Estás a responder como um assistente do grupo de viagem a Corfu, em agosto de 2025. "
+        "Dá respostas breves, úteis e simpáticas. "
+        "Se não houver dados no contexto, diz isso de forma simples e direta. "
+        "Não cries personagens nem faças humor desnecessário.\n\n"
+        "Exemplo: Pergunta: 'O que posso perguntar aqui?' → Resposta: 'Podes perguntar sobre voos, datas, seguro, carro alugado, atividades ou até sobre os participantes da viagem. Se quiseres, posso contar histórias deles com algum exagero à mistura.'"
+    )
+
+    mensagens = [
+        {"role": "system", "content": system_message},
+        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
+    ]
+    return llm.invoke(mensagens).content
 
 def responder_pergunta(pergunta, k=100):
     tipo_pergunta = classificar_pergunta(pergunta)
-    resultados = chroma_db.similarity_search(pergunta, k=k)
+    resultados_com_score_raw = chroma_db.similarity_search_with_score(pergunta, k=k)
+    resultados_com_score = rerank_heuristico(resultados_com_score_raw, pergunta)
 
-    if not resultados:
+    # log_diagnostico(pergunta, tipo_pergunta, resultados_com_score)
+
+
+    if not resultados_com_score:
         return "Hmm, não encontrei nada nos nossos ficheiros sobre isso. Podes tentar perguntar de outra forma ou sobre outra coisa?"
 
-    participantes_chunks = [r for r in resultados if r.metadata["tipo"] == "participantes"]
-    logistica_chunks = [r for r in resultados if r.metadata["tipo"] == "logistica"]
-
-    if tipo_pergunta == "factual" or not participantes_chunks:
-        termos_relevantes = ["voo", "seguro", "carro", "chegada", "partida", "corfu", "milão", "paris"]
-        prioridade_chunks = [
-            r for r in logistica_chunks
-            if any(t in r.page_content.lower() for t in termos_relevantes)
-        ]
-        contexto = "\n\n".join(r.page_content for r in prioridade_chunks) if prioridade_chunks else "\n\n".join(r.page_content for r in logistica_chunks)
-        system_message = (
-            "Estás a responder como um assistente de viagem. Responde apenas com base nas informações fornecidas no contexto abaixo. "
-            "Não faças suposições, não inventes companhias aéreas, não recomendes websites genéricos. "
-            "Foca-te nos detalhes concretos da viagem (voos, datas, horas, companhias, preços, etc). "
-            "Se o contexto não tiver a resposta, diz que não há informação suficiente."
-        )
+    if tipo_pergunta == "factual":
+        return responder_factual(pergunta, resultados_com_score)
+    elif tipo_pergunta == "pessoal":
+        return responder_pessoal(pergunta, resultados_com_score)
     else:
-        nome_mencionado = None
-        nomes_possiveis = ["vasco", "andré", "pato", "joão", "jota", "diogo", "rodrigo", "miranda", "ralph"]
-        for nome in nomes_possiveis:
-            if nome in pergunta.lower():
-                nome_mencionado = nome
-                break
-        if nome_mencionado:
-            chunks_filtrados = [r for r in participantes_chunks if nome_mencionado in r.metadata["id"].lower()]
-        else:
-            chunks_filtrados = participantes_chunks
-
-        contexto = "\n\n".join(r.page_content for r in chunks_filtrados)
-        nomes_encontrados = set(r.metadata["id"].lower() for r in chunks_filtrados)
-        personagens = []
-        if "vasco" in nomes_encontrados:
-            personagens.append("Vasco é uma das patys do grupo...")
-        if "andre" in nomes_encontrados:
-            personagens.append("André é o piloto emocional do grupo...")
-        if "pato" in nomes_encontrados:
-            personagens.append("Rodrigo Pato é sensível...")
-        if "joao" in nomes_encontrados or "jota" in nomes_encontrados:
-            personagens.append("Jota é o bisonte de ginásio...")
-        if "diogo" in nomes_encontrados:
-            personagens.append("Diogo é o influencer com passado alcoólico...")
-        if "rodrigo_miranda" in nomes_encontrados or "rodrigo" in nomes_encontrados:
-            personagens.append("Rodrigo Miranda é o autista espiritual do grupo...")
-        if not personagens:
-            personagens.append("Estás a falar de um dos participantes da viagem, responde com humor e estilo pessoal.")
-
-        personagem = "\n\n".join(personagens)
-        system_message = (
-            f"Estás a responder como um amigo próximo do grupo que vai a Corfu. "
-            f"Usa piadas internas, linguagem do grupo e um tom leve, divertido e exagerado. "
-            f"O teu estilo deve imitar o dos textos dos participantes: frases curtas, gíria, humor, absurdos e inside jokes. "
-            f"Nunca respondas de forma neutra ou genérica. "
-            f"Se mencionares alguém, usa expressões e acontecimentos reais descritos nos textos.\n\n{personagem}"
-        )
-
-    mensagens = st.session_state.chat_history.copy()
-    mensagens.append({"role": "system", "content": system_message})
-    mensagens.append({"role": "user", "content": f"A pergunta do utilizador é:\n{pergunta}\n\nAqui está o contexto útil:\n{contexto}"})
-    resposta = llm.invoke(mensagens)
-    # st.session_state.chat_history.append({"role": "assistant", "content": resposta.content})
-    return resposta.content
+        return responder_generico(pergunta, resultados_com_score)
 
 # ======================
 # 6️⃣ Interface Streamlit
