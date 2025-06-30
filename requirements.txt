@@ -12,7 +12,7 @@ build==1.2.2.post1
 cachetools==5.5.2
 certifi==2025.6.15
 charset-normalizer==3.4.2
-chromadb==1.0.13
+# chromadb==1.0.13
 click==8.2.1
 colorama==0.4.6
 coloredlogs==15.0.1
@@ -141,3 +141,4 @@ websockets==15.0.1
 yarl==1.20.1
 zipp==3.23.0
 zstandard==0.23.0
+faiss-cpu

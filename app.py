@@ -9,7 +9,8 @@ print("✅ Version:", os.getenv("AZURE_OPENAI_API_VERSION"))
 print("✅ Deployment:", os.getenv("AZURE_OPENAI_DEPLOYMENT"))
 
 import streamlit as st
-from langchain.vectorstores import Chroma
+# from langchain.vectorstores import Chroma
+from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.schema import Document
 from langchain_openai import AzureChatOpenAI
@@ -104,15 +105,11 @@ docs_formatados = [
 ]
 
 db_path = "chroma_db"
-def criar_ou_carregar_chroma(docs, embedding, path):
-    if not os.path.exists(path):
-        db = Chroma.from_documents(documents=docs, embedding=embedding, persist_directory=path)
-        db.persist()
-    else:
-        db = Chroma(persist_directory=path, embedding_function=embedding)
+def criar_ou_carregar_faiss(docs, embedding):
+    db = FAISS.from_documents(documents=docs, embedding=embedding)
     return db
 
-chroma_db = criar_ou_carregar_chroma(docs_formatados, embedding_model, db_path)
+chroma_db = criar_ou_carregar_faiss(docs_formatados, embedding_model)
 
 # ======================
 # 5️⃣ Funções RAG
