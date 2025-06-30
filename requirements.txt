@@ -7,3 +7,4 @@ langchain-openai
 chromadb
 sentence-transformers
 openai
+protobuf<=3.20.3
