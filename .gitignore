@@ -1,0 +1,30 @@
+# Ambiente virtual
+venv/
+.env
+.env.*
+
+# Ficheiros de configuração locais
+*.env
+azure_key.txt
+
+# Bases vetoriais Chroma
+chroma_db/
+chroma.db/
+index/
+*.pkl
+
+# Dados e documentos locais
+imagens/
+rag_docs/
+
+# Cache e ficheiros temporários
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+.DS_Store
+*.sqlite3
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/secrets.toml
