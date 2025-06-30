@@ -1,7 +1,7 @@
 # Ambiente virtual
 venv/
-.env
-.env.*
+chatbot_env/
+
 
 # Ficheiros de configuração locais
 *.env
