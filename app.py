@@ -255,6 +255,11 @@ with tab1:
             st.markdown(msg["content"])
     
 
+    # Limpar input se sinalizador estiver ativo
+    if "reset_input" in st.session_state and st.session_state.reset_input:
+        st.session_state.pergunta_input = ""
+        st.session_state.reset_input = False
+
     # Input com submit via Enter
     st.divider()
     with st.form(key="form_pergunta"):
@@ -265,13 +270,26 @@ with tab1:
         )
         submitted = st.form_submit_button("Enviar")
 
+        # ✅ NOVA VERSÃO (mantém o input limpo sem erro)
         if submitted and user_input.strip():
+            pergunta = user_input  # guarda o valor antes de limpar
             st.session_state.primeira_interacao = False
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            resposta = responder_pergunta(user_input)
+            st.session_state.chat_history.append({"role": "user", "content": pergunta})
+            resposta = responder_pergunta(pergunta)
             st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-            # st.session_state.pergunta_input = ""  # limpa a caixa
-            st.experimental_rerun()
+            st.session_state.reset_input = True  # ativa sinalizador para limpar
+            st.rerun()
+
+        # ❌ VERSÃO ANTIGA (com erro, deixada aqui comentada como referência)
+        # if submitted and user_input.strip():
+        #     st.session_state.primeira_interacao = False
+        #     st.session_state.chat_history.append({"role": "user", "content": user_input})
+        #     resposta = responder_pergunta(user_input)
+        #     st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+        #     st.session_state.pergunta_input = ""  # limpa a caixa (isto dá erro)
+        #     st.rerun()
+
+
 
 
 
