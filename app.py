@@ -270,8 +270,8 @@ with tab1:
             st.session_state.chat_history.append({"role": "user", "content": user_input})
             resposta = responder_pergunta(user_input)
             st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-            st.session_state.pergunta_input = ""  # limpa a caixa
-            st.rerun()
+            # st.session_state.pergunta_input = ""  # limpa a caixa
+            st.experimental_rerun()
 
 
 
