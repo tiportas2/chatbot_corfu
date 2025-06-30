@@ -7,15 +7,15 @@ venv/
 *.env
 azure_key.txt
 
-# Bases vetoriais Chroma
-chroma_db/
-chroma.db/
-index/
-*.pkl
+# # Bases vetoriais Chroma
+# chroma_db/
+# chroma.db/
+# index/
+# *.pkl
 
-# Dados e documentos locais
-imagens/
-rag_docs/
+# # Dados e documentos locais
+# imagens/
+# rag_docs/
 
 # Cache e ficheiros temporários
 __pycache__/
