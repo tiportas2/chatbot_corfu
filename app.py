@@ -215,7 +215,7 @@ with tab1:
     if not st.session_state.chat_history:
         st.info(
             "⚠️ *Este chatbot é experimental e pode ter respostas erradas ou incompletas.*\n"
-            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras!"
+            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras"
         )
 
 
@@ -258,14 +258,22 @@ with tab1:
     # Input com submit via Enter
     st.divider()
     with st.form(key="form_pergunta"):
-        user_input = st.text_input("✏️ Faz a tua pergunta:", placeholder="Escreve aqui a tua questão...", key="pergunta_input")
+        user_input = st.text_input(
+            "✏️ Faz a tua pergunta:",
+            placeholder="Escreve aqui a tua questão...",
+            key="pergunta_input"
+        )
         submitted = st.form_submit_button("Enviar")
+
         if submitted and user_input.strip():
             st.session_state.primeira_interacao = False
             st.session_state.chat_history.append({"role": "user", "content": user_input})
             resposta = responder_pergunta(user_input)
             st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+            st.session_state.pergunta_input = ""  # limpa a caixa
             st.rerun()
+
+
 
 
 
