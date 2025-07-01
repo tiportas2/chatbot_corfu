@@ -24,6 +24,18 @@ import re
 import base64
 from io import BytesIO
 
+from langchain.memory import ConversationBufferWindowMemory
+
+# Inicializar memória de janela com as últimas 4 mensagens
+if "memory" not in st.session_state:
+    st.session_state.memory = ConversationBufferWindowMemory(
+        k=4,  # número de interações (user+AI) a manter
+        return_messages=True
+    )
+
+memory = st.session_state.memory
+
+
 def img_to_base64(img):
     buffered = BytesIO()
     img.save(buffered, format="JPEG")
@@ -215,44 +227,64 @@ def rerank_heuristico(resultados_com_score, pergunta):
 # 
 # ======================
 def responder_factual(pergunta, resultados):
-    # Extrair só os documentos (ignorando os scores por agora)
-    documentos = [r for r, _ in resultados]
+    memory = st.session_state.memory
 
-    # Filtrar chunks do tipo 'logistica'
+    documentos = [r for r, _ in resultados]
     logistica_chunks = [r for r in documentos if r.metadata["tipo"] == "logistica"]
     termos_relevantes = ["voo", "seguro", "carro", "chegada", "partida", "corfu"]
 
-    # Dar prioridade aos chunks mais relevantes semanticamente
     prioridade_chunks = [
         r for r in logistica_chunks
         if any(t in r.page_content.lower() for t in termos_relevantes)
     ]
 
-    # Se houver chunks com termos relevantes, usa esses; senão, usa todos os de logística
     contexto = "\n\n".join(r.page_content for r in prioridade_chunks) if prioridade_chunks else "\n\n".join(r.page_content for r in logistica_chunks)
 
+    # ✅ Novo system_message com fluidez e precisão
     system_message = (
-    "Estás a responder como um assistente de viagem. Responde apenas com base no contexto abaixo, que diz respeito à viagem a Corfu em agosto de 2025. "
-    "Sê direto, factual e não inventes informação. Se não souberes, diz que não há dados suficientes.\n\n"
-    "Exemplos:\n"
-    "- Pergunta: 'Qual é o seguro do carro?' → Resposta: 'O seguro é da Collinson, custa 55,80€ e cobre danos e roubo de 8 a 14 de agosto em Corfu.'\n"
-    "- Pergunta: 'Quanto custaram os carros?' → Resposta: 'O aluguer dos carros foi de 117,40€ por pessoa.'\n"
-    "- Pergunta: 'Quem são os condutores do carro?' → Resposta: 'Os condutores são Rodrigo Miranda e Rodrigo Pato, conforme indicado na apólice do seguro.'"
+        "Estás a responder como um assistente de viagem do grupo que vai a Corfu em agosto de 2025. "
+        "A conversa deve ser fluída e natural — usa o histórico anterior para perceber o contexto e dar continuidade. "
+        "As tuas respostas devem ser diretas, claras e baseadas exclusivamente no contexto fornecido. "
+        "Não inventes dados. Se não houver informação suficiente, diz isso com simplicidade. "
+        "Se a pergunta for vaga (ex: 'e o seguro?'), deves assumir que a conversa está em andamento e responder com base no que for mais relevante.\n\n"
+        "Exemplos:\n"
+        "- Pergunta: 'Qual é o seguro do carro?' → Resposta: 'O seguro é da Collinson, custa 55,80€ e cobre danos e roubo de 8 a 14 de agosto em Corfu.'\n"
+        "- Pergunta: 'Quanto custaram os carros?' → Resposta: 'O aluguer dos carros foi de 117,40€ por pessoa.'\n"
+        "- Pergunta: 'Quem são os condutores do carro?' → Resposta: 'Os condutores são Rodrigo Miranda e Rodrigo Pato, conforme indicado na apólice do seguro.'"
     )
 
-    mensagens = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
-    ]
-    return llm.invoke(mensagens).content
+    # ✅ Corrigir roles: transformar "human"/"ai" em "user"/"assistant"
+    historico_formatado = []
+    for m in memory.chat_memory.messages:
+        if m.type == "human":
+            historico_formatado.append({"role": "user", "content": m.content})
+        elif m.type == "ai":
+            historico_formatado.append({"role": "assistant", "content": m.content})
+
+    # ✅ Construir prompt completo com histórico
+    mensagens = (
+        [{"role": "system", "content": system_message}]
+        + historico_formatado
+        + [{"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}]
+    )
+
+    resposta = llm.invoke(mensagens).content
+
+    # ✅ Atualizar memória com nova interação
+    memory.chat_memory.add_user_message(pergunta)
+    memory.chat_memory.add_ai_message(resposta)
+    st.session_state.mensagens = mensagens
+
+    return resposta
+
+
 
 def responder_pessoal(pergunta, resultados):
-    # Extrair apenas os documentos
-    documentos = [r for r, _ in resultados]
+    memory = st.session_state.memory
 
+    documentos = [r for r, _ in resultados]
     participantes_chunks = [r for r in documentos if r.metadata["tipo"] == "participantes"]
 
-    # Mapeamento robusto de nomes/alcunhas → id dos participantes
     mapa_nomes = {
         "vasco": "vasco_machado",
         "andre": "andre_marques",
@@ -271,25 +303,19 @@ def responder_pessoal(pergunta, resultados):
     }
 
     pergunta_lower = pergunta.lower()
-
-    # Verifica se há match com um ou mais nomes no mapa
     nomes_encontrados = [mapa_nomes[n] for n in mapa_nomes if n in pergunta_lower]
-
-    # Tratamento especial para a alcunha ambígua "paty"
     if "paty" in pergunta_lower:
         nomes_encontrados = ["vasco_machado", "rodrigo_pato"]
 
-    # Filtrar os chunks com base nos IDs encontrados
     if nomes_encontrados:
         chunks_filtrados = [r for r in participantes_chunks if r.metadata["id"].lower() in nomes_encontrados]
     else:
         chunks_filtrados = participantes_chunks
 
     contexto = "\n\n".join(r.page_content for r in chunks_filtrados)
-
-    personagens = []
     ids_encontrados = set(r.metadata["id"].lower() for r in chunks_filtrados)
 
+    personagens = []
     if "vasco_machado" in ids_encontrados:
         personagens.append("Vasco é uma das Patys do grupo — tem cabelo rapado mas decidiu lavar o cabelo antes da praia, e ainda pediu um batido tropical à influencer. É um brunch ambulante.")
     if "andre_marques" in ids_encontrados:
@@ -302,13 +328,11 @@ def responder_pessoal(pergunta, resultados):
         personagens.append("Diogo é o influencer com passado alcoólico.")
     if "rodrigo_miranda" in ids_encontrados:
         personagens.append("Rodrigo Miranda é o autista espiritual do grupo.")
-
     if not personagens:
         personagens.append("Estás a falar de um dos participantes da viagem, responde com humor e estilo pessoal.")
 
     personagem = "\n\n".join(personagens)
 
-    # Gera a descrição de nomes mencionados para o prompt
     if nomes_encontrados:
         if len(nomes_encontrados) == 1:
             descricao_nomes = f"o participante {nomes_encontrados[0].replace('_', ' ').title()}"
@@ -318,10 +342,15 @@ def responder_pessoal(pergunta, resultados):
     else:
         descricao_nomes = "um dos participantes"
 
+    # ✅ Novo system message mais natural e fluído
     system_message = f"""
 Estás a responder como um amigo muito próximo deste grupo de viagem.
 
-Responde com base no contexto abaixo, mantendo o tom divertido, exagerado e cheio de piadas internas. Usa o estilo real do grupo e evita parecer artificial ou polido demais.
+A conversa deve ser fluída, divertida e com continuidade — usa o histórico se fizer sentido. 
+Se alguém disser "e o Vasco?", entende que a conversa já está em andamento e responde com base no que foi dito antes.
+
+Usa o contexto e responde com piadas internas, exageros naturais e estilo real do grupo. 
+Evita respostas robóticas ou polidas demais.
 
 Se a pergunta for sobre {descricao_nomes}, deves:
 - Reforçar os traços mais marcantes da personagem.
@@ -329,38 +358,78 @@ Se a pergunta for sobre {descricao_nomes}, deves:
 - Inventar apenas se for plausível e em linha com o estilo do grupo.
 - Evitar repetir literalmente o conteúdo — interpreta-o de forma criativa.
 
-Se não souberes, responde com humor e estilo. Nunca respondas como uma IA.
+Se não souberes, responde com humor. Nunca digas que és uma IA.
 
 {personagem}
 """
 
-    mensagens = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
-    ]
-    return llm.invoke(mensagens).content
+    # ✅ Corrigir roles: transformar "human"/"ai" em "user"/"assistant"
+    historico_formatado = []
+    for m in memory.chat_memory.messages:
+        if m.type == "human":
+            historico_formatado.append({"role": "user", "content": m.content})
+        elif m.type == "ai":
+            historico_formatado.append({"role": "assistant", "content": m.content})
+
+    mensagens = (
+        [{"role": "system", "content": system_message}]
+        + historico_formatado
+        + [{"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}]
+    )
+
+    resposta = llm.invoke(mensagens).content
+
+    memory.chat_memory.add_user_message(pergunta)
+    memory.chat_memory.add_ai_message(resposta)
+    st.session_state.mensagens = mensagens
+
+    return resposta
+
 
 
 def responder_generico(pergunta, resultados):
-    # Extrair os documentos (ignorando os scores)
-    documentos = [r for r, _ in resultados]
+    memory = st.session_state.memory  # Aceder à memória partilhada da sessão
 
-    # Pega nos primeiros 5 documentos apenas
+    documentos = [r for r, _ in resultados]
     contexto = "\n\n".join(r.page_content for r in documentos[:5])
 
+    # ✅ Novo system message com ênfase em fluidez
     system_message = (
-        "Estás a responder como um assistente do grupo de viagem a Corfu, em agosto de 2025. "
-        "Dá respostas breves, úteis e simpáticas. "
+        "Estás a responder como um assistente simpático e útil do grupo de viagem a Corfu, em agosto de 2025. "
+        "A conversa deve ser natural e fluída — usa o histórico sempre que for relevante. "
+        "Se alguém te perguntar algo como 'e o seguro?', entende que a conversa já está em andamento. "
+        "Responde com brevidade, clareza e simpatia. "
         "Se não houver dados no contexto, diz isso de forma simples e direta. "
-        "Não cries personagens nem faças humor desnecessário.\n\n"
+        "Evita criar personagens ou exagerar no humor, a não ser que o tom da conversa já o esteja a pedir.\n\n"
         "Exemplo: Pergunta: 'O que posso perguntar aqui?' → Resposta: 'Podes perguntar sobre voos, datas, seguro, carro alugado, atividades ou até sobre os participantes da viagem. Se quiseres, posso contar histórias deles com algum exagero à mistura.'"
     )
 
-    mensagens = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}
-    ]
-    return llm.invoke(mensagens).content
+    # ✅ Corrigir roles: transformar "human"/"ai" em "user"/"assistant"
+    historico_formatado = []
+    for m in memory.chat_memory.messages:
+        if m.type == "human":
+            historico_formatado.append({"role": "user", "content": m.content})
+        elif m.type == "ai":
+            historico_formatado.append({"role": "assistant", "content": m.content})
+
+    # ✅ Construir prompt com histórico e contexto
+    mensagens = (
+        [{"role": "system", "content": system_message}]
+        + historico_formatado
+        + [{"role": "user", "content": f"Pergunta: {pergunta}\n\nContexto:\n{contexto}"}]
+    )
+
+    resposta = llm.invoke(mensagens).content
+
+    # ✅ Atualizar memória com nova interação
+    memory.chat_memory.add_user_message(pergunta)
+    memory.chat_memory.add_ai_message(resposta)
+    st.session_state.mensagens = mensagens
+
+    return resposta
+
+
+
 
 def responder_pergunta(pergunta, k=100):
     tipo_pergunta = classificar_pergunta(pergunta)
@@ -397,10 +466,15 @@ tab1, tab2 = st.tabs(["💬 Chat", "👥 Membros"])
 with tab1:
     st.title("🌴 Chatbot da Viagem a Corfu")
 
+    # ✅ Modo de depuração para ver memória da sessão
+    debug_mode = st.sidebar.checkbox("🛠️ Mostrar memória da sessão", value=False)
+
+
     if not st.session_state.chat_history:
         st.info(
-            "⚠️ *Este chatbot é experimental e pode ter respostas erradas ou incompletas.*\n"
-            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras"
+            "⚠️ *Este chatbot é experimental e pode ter respostas erradas ou incompletas.*\n\n"
+            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras.\n\n"
+            "Este chatbot não tem memória, cada mensagem deve ser feita de forma independente tendo em conta que o contexto não será considerado."
         )
 
 
@@ -412,33 +486,95 @@ with tab1:
         with col1:
             if st.button("Quais são os voos?"):
                 st.session_state.primeira_interacao = False
-                st.session_state.chat_history.append({"role": "user", "content": "Quais são os voos?"})
-                resposta = responder_pergunta("Quais são os voos?")
+                pergunta = "Quais são os voos?"
+                resposta = responder_pergunta(pergunta)
+                st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
+                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
                 st.rerun()
 
         with col2:
             if st.button("Quem é o cara de ovo?"):
                 st.session_state.primeira_interacao = False
-                st.session_state.chat_history.append({"role": "user", "content": "Quem é o cara de ovo?"})
-                resposta = responder_pergunta("Quem é o cara de ovo?")
+                pergunta = "Quem é o cara de ovo?"
+                resposta = responder_pergunta(pergunta)
+                st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
+                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
                 st.rerun()
+
 
         with col3:
             if st.button("Quais são as atividades?"):
                 st.session_state.primeira_interacao = False
-                st.session_state.chat_history.append({"role": "user", "content": "Quais são as atividades?"})
-                resposta = responder_pergunta("Quais são as atividades?")
+                pergunta = "Quais são as atividades?"
+                resposta = responder_pergunta(pergunta)
+                st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
+                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
+                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
                 st.rerun()
+
 
     # Mostrar histórico 
     st.divider()
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-    
+
+    # ✅ Mostrar conteúdo da memória, se debug_mode estiver ativo
+    if debug_mode:
+        memory = st.session_state.memory
+        st.divider()
+
+        st.sidebar.subheader("📜 Memória formatada para o modelo (roles corrigidos)")
+        for i, m in enumerate(memory.chat_memory.messages):
+            role = "user" if m.type == "human" else "assistant"
+            st.sidebar.markdown(f"**{i+1}. {role.upper()}**")
+            st.sidebar.code(m.content, language="markdown")
+
+        with st.expander("🧠 Conteúdo atual da memória (LangChain)"):
+            if not memory.chat_memory.messages:
+                st.markdown("❌ *A memória está vazia. Nada foi guardado.*")
+            else:
+                st.subheader("📨 LangChain Memory")
+                for i, m in enumerate(memory.chat_memory.messages):
+                    st.markdown(f"**{i+1}. {m.type.upper()}**")
+                    st.code(m.content, language="markdown")
+
+                st.subheader("🧱 Representação bruta da memória (debug avançado)")
+                for i, m in enumerate(memory.chat_memory.messages):
+                    st.code(repr(m), language="python")
+
+                if any(m.content.strip() == "" for m in memory.chat_memory.messages):
+                    st.warning("⚠️ Há mensagens com conteúdo vazio na memória.")
+
+                if st.session_state.chat_history:
+                    st.subheader("🧾 Histórico Visual (chat_history)")
+                    for i, m in enumerate(st.session_state.chat_history):
+                        st.markdown(f"**{i+1}. {m['role'].upper()}**")
+                        st.code(m["content"], language="markdown")
+
+                # 🧹 Botão para limpar tudo
+                if st.button("🧹 Limpar memória da sessão"):
+                    memory.clear()
+                    st.session_state.chat_history = []
+                    st.session_state.mensagens = []
+                    st.success("✅ Memória e histórico visual limpos com sucesso.")
+                    st.rerun()
+
+        # 📤 Mostrar prompt enviado ao modelo
+        if "mensagens" in st.session_state and st.session_state.mensagens:
+            st.sidebar.subheader("📤 Prompt enviado ao modelo (última interação)")
+            for i, m in enumerate(st.session_state.mensagens):
+                st.sidebar.markdown(f"**{i+1}. {m['role'].upper()}**")
+                st.sidebar.code(m["content"], language="markdown")
+        else:
+            st.sidebar.markdown("⚠️ *O prompt enviado ao modelo ainda não foi guardado.*")
+
+
 
     # Limpar input se sinalizador estiver ativo
     if "reset_input" in st.session_state and st.session_state.reset_input:
@@ -473,9 +609,6 @@ with tab1:
         #     st.session_state.chat_history.append({"role": "assistant", "content": resposta})
         #     st.session_state.pergunta_input = ""  # limpa a caixa (isto dá erro)
         #     st.rerun()
-
-
-
 
 
 
