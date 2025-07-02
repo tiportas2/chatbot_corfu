@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "content": "Quais são os voos?"
+  },
+  {
+    "role": "assistant",
+    "content": "Os voos para a viagem a Corfu em agosto de 2025 são os seguintes:\n\nIDA:\n- Voo easyJet U24594 de Lisboa (LIS) para Paris Charles de Gaulle (CDG) às 19h30, com chegada às 23h05.\n- Escala noturna em Paris.\n- Voo easyJet U24613 de Paris (CDG) para Corfu (CFU) às 06h05, chegando às 09h45.\n\nREGRESSO:\n- Voo easyJet U23658 de Corfu (CFU) para Milão Malpensa (MXP) às 15h35, com chegada às 16h40.\n- Escala em Milão.\n- Voo easyJet U27674 de Milão (MXP) para Lisboa (LIS) às 21h50, chegando às 23h45."
+  }
+]

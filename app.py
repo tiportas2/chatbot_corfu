@@ -11,7 +11,7 @@ print("✅ Deployment:", os.getenv("AZURE_OPENAI_DEPLOYMENT"))
 import streamlit as st
 # from langchain.vectorstores import Chroma
 from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.schema import Document
 from langchain_openai import AzureChatOpenAI
 from langchain.text_splitter import CharacterTextSplitter
@@ -23,6 +23,186 @@ import re
 
 import base64
 from io import BytesIO
+
+# from streamlit_extras.cookies import get_cookie, set_cookie  ❌ (antigo e obsoleto)
+from streamlit_cookies_manager import EncryptedCookieManager 
+
+import uuid
+
+import streamlit as st
+from memoria import listar_conversas, carregar_conversa, guardar_conversa, apagar_conversa, apagar_todas_conversas
+
+def gerar_nome_conversa_baseado_na_pergunta(pergunta):
+    nome = pergunta.lower()
+    nome = re.sub(r"[^\w\s]", "", nome)  # remove pontuação
+    nome = "_".join(nome.split()[:5])    # usa até 5 palavras
+    return nome
+
+
+# Criar user_id único se ainda não existir
+# 🍪 Ler ou criar user_id persistente
+cookies = EncryptedCookieManager(password=os.getenv("COOKIE_SECRET", "default123"))
+
+if not cookies.ready():
+    st.stop()  # Aguarda cookies estarem prontos
+
+if not cookies.get("user_id"):
+    new_id = str(uuid.uuid4())
+    cookies["user_id"] = new_id
+    cookies.save()
+    user_id = new_id
+else:
+    user_id = cookies.get("user_id")
+
+st.session_state.user_id = user_id
+
+if "confirmar_apagar_tudo" not in st.session_state:
+    st.session_state.confirmar_apagar_tudo = False
+
+# Inicializar ID da conversa
+if "conversa_id" not in st.session_state:
+    st.session_state.conversa_id = "conversa_1"
+
+# Inicializar lista de conversas se necessário
+if "conversas" not in st.session_state:
+    st.session_state.conversas = {}
+
+
+# Tentar carregar histórico do disco se ainda não houver
+if "chat_history" not in st.session_state:
+    historico_guardado = carregar_conversa(
+        st.session_state.user_id,
+        st.session_state.conversa_id
+    )
+    st.session_state.chat_history = historico_guardado or []
+
+# Carregar lista de conversas
+conversas_disponiveis = listar_conversas(st.session_state.user_id)
+# Preencher dicionário com os nomes das conversas e respetivo conteúdo (se quiseres usar mais tarde)
+for c in conversas_disponiveis:
+    if c not in st.session_state.conversas:
+        st.session_state.conversas[c] = carregar_conversa(st.session_state.user_id, c) 
+
+# Garante que a conversa atual está na lista
+if st.session_state.conversa_id not in conversas_disponiveis:
+    conversas_disponiveis = [st.session_state.conversa_id] + conversas_disponiveis
+
+
+# Sidebar interativa
+with st.sidebar:
+    st.markdown("## 🧠 Sessão")
+    st.write(f"👤 User ID: `{st.session_state.user_id}`")
+    st.write(f"💬 Conversa ID: `{st.session_state.conversa_id}`")
+
+    # Seletor de conversas existentes
+    conversa_escolhida = st.radio(
+        "📁 Conversas:",
+        conversas_disponiveis,
+        index=conversas_disponiveis.index(st.session_state.conversa_id)
+        if st.session_state.conversa_id in conversas_disponiveis else 0
+    )
+
+    # Trocar conversa
+    if conversa_escolhida != st.session_state.conversa_id:
+        st.session_state.conversa_id = conversa_escolhida
+        st.session_state.chat_history = carregar_conversa(
+            st.session_state.user_id,
+            st.session_state.conversa_id
+        )
+
+    # Botão Nova conversa
+    if st.button("➕ Nova conversa"):
+        # Guardar conversa atual antes de trocar
+        guardar_conversa(
+            st.session_state.user_id,
+            st.session_state.conversa_id,
+            st.session_state.chat_history
+        )
+
+        # Gerar novo nome único (conversa_1, conversa_2, etc)
+        idx = 1
+        while f"conversa_{idx}" in conversas_disponiveis:
+            idx += 1
+        novo_nome = f"conversa_{idx}"
+
+        # Atualizar sessão
+        st.session_state.conversa_id = novo_nome
+        st.session_state.chat_history = []
+
+        # Guardar nova conversa
+        guardar_conversa(st.session_state.user_id, novo_nome, [])
+
+        # Reset da flag de sugestões
+        st.session_state.primeira_interacao = True
+
+        # Forçar refresh da app para atualizar lista
+        st.rerun()
+
+    # Botão Limpar conversa atual
+    if st.button("🧼 Limpar conversa atual"):
+        st.session_state.chat_history = []
+        guardar_conversa(
+            st.session_state.user_id,
+            st.session_state.conversa_id,
+            []
+        )
+
+    # Botão Apagar conversa atual
+    if st.button("🗑️ Apagar conversa atual"):
+        apagar_conversa(
+            st.session_state.user_id,
+            st.session_state.conversa_id
+        )
+
+        # Atualizar estado da aplicação
+        conversas_restantes = listar_conversas(st.session_state.user_id)
+        if conversas_restantes:
+            nova_conversa = conversas_restantes[0]
+            st.session_state.conversa_id = nova_conversa
+            st.session_state.chat_history = carregar_conversa(
+                st.session_state.user_id, nova_conversa
+            )
+        else:
+            st.session_state.conversa_id = "conversa_1"
+            st.session_state.chat_history = []
+            guardar_conversa(st.session_state.user_id, "conversa_1", [])
+
+        st.success("✅ Conversa apagada com sucesso.")
+        st.rerun()
+
+    # Botão Apagar todas as conversas
+    with st.expander("⚠️ Opções avançadas"):
+        st.markdown("### 🔥 Apagar todas as conversas")
+
+        if st.button("❌ Quero apagar tudo"):
+            st.session_state.confirmar_apagar_tudo = True
+
+        if st.session_state.get("confirmar_apagar_tudo", False):
+            st.warning("⚠️ Tens a certeza que queres apagar todas as conversas? Esta ação não pode ser revertida.")
+            col1, col2 = st.columns([1, 2])
+
+            with col1:
+                if st.button("✅ Sim, apagar tudo agora"):
+                    apagar_todas_conversas(st.session_state.user_id)
+                    st.session_state.conversa_id = "conversa_1"
+                    st.session_state.chat_history = []
+                    guardar_conversa(st.session_state.user_id, "conversa_1", [])
+                    st.success("🧨 Todas as conversas foram apagadas com sucesso.")
+                    st.session_state.confirmar_apagar_tudo = False
+                    st.rerun()
+
+            with col2:
+                if st.button("❌ Cancelar"):
+                    st.session_state.confirmar_apagar_tudo = False
+
+
+
+# Guardar sempre que houver histórico (podes mover para o fim do teu `chat handler`)
+guardar_conversa(
+    st.session_state.user_id,
+    st.session_state.conversa_id,
+    st.session_state.chat_history
+)
 
 from langchain.memory import ConversationBufferWindowMemory
 
@@ -108,7 +288,11 @@ document_chunks = dividir_em_chunks(documentos, splitter)
 # ======================
 # 4️⃣ Gerar embeddings e carregar base vetorial
 # ======================
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"}
+)
+
 
 docs_formatados = [
     Document(page_content=chunk["conteudo"], metadata={
@@ -473,8 +657,7 @@ with tab1:
     if not st.session_state.chat_history:
         st.info(
             "⚠️ *Este chatbot é experimental e pode ter respostas erradas ou incompletas.*\n\n"
-            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras.\n\n"
-            "Este chatbot não tem memória, cada mensagem deve ser feita de forma independente tendo em conta que o contexto não será considerado."
+            "Se não obtiveres a resposta que querias, tenta reformular a pergunta com outras palavras."
         )
 
 
@@ -490,9 +673,27 @@ with tab1:
                 resposta = responder_pergunta(pergunta)
                 st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
-                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
+                memory.chat_memory.add_user_message(pergunta)
+                memory.chat_memory.add_ai_message(resposta)
+
+                if st.session_state.conversa_id.startswith("conversa_"):
+                    novo_nome = gerar_nome_conversa_baseado_na_pergunta(pergunta)
+                    pasta_user = f"historico_data/user_{st.session_state.user_id}"
+                    caminho_antigo = os.path.join(pasta_user, f"{st.session_state.conversa_id}.json")
+                    caminho_novo = os.path.join(pasta_user, f"{novo_nome}.json")
+
+                    if not os.path.exists(caminho_novo):
+                        os.rename(caminho_antigo, caminho_novo)
+
+                        if "conversas" in st.session_state:
+                            st.session_state.conversas[novo_nome] = st.session_state.conversas.pop(
+                                st.session_state.conversa_id, []
+                            )
+
+                        st.session_state.conversa_id = novo_nome
+
                 st.rerun()
+
 
         with col2:
             if st.button("Quem é o cara de ovo?"):
@@ -501,10 +702,27 @@ with tab1:
                 resposta = responder_pergunta(pergunta)
                 st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
-                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
-                st.rerun()
+                memory.chat_memory.add_user_message(pergunta)
+                memory.chat_memory.add_ai_message(resposta)
 
+                # ✅ RENOMEAR a conversa se ainda tiver nome genérico
+                if st.session_state.conversa_id.startswith("conversa_"):
+                    novo_nome = gerar_nome_conversa_baseado_na_pergunta(pergunta)
+                    pasta_user = f"historico_data/user_{st.session_state.user_id}"
+                    caminho_antigo = os.path.join(pasta_user, f"{st.session_state.conversa_id}.json")
+                    caminho_novo = os.path.join(pasta_user, f"{novo_nome}.json")
+
+                    if not os.path.exists(caminho_novo):
+                        os.rename(caminho_antigo, caminho_novo)
+
+                        if "conversas" in st.session_state:
+                            st.session_state.conversas[novo_nome] = st.session_state.conversas.pop(
+                                st.session_state.conversa_id, []
+                            )
+
+                        st.session_state.conversa_id = novo_nome
+
+                st.rerun()
 
         with col3:
             if st.button("Quais são as atividades?"):
@@ -513,9 +731,27 @@ with tab1:
                 resposta = responder_pergunta(pergunta)
                 st.session_state.chat_history.append({"role": "user", "content": pergunta})
                 st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-                memory.chat_memory.add_user_message(pergunta)     # ✅ Atualiza memória
-                memory.chat_memory.add_ai_message(resposta)       # ✅ Atualiza memória
+                memory.chat_memory.add_user_message(pergunta)
+                memory.chat_memory.add_ai_message(resposta)
+
+                if st.session_state.conversa_id.startswith("conversa_"):
+                    novo_nome = gerar_nome_conversa_baseado_na_pergunta(pergunta)
+                    pasta_user = f"historico_data/user_{st.session_state.user_id}"
+                    caminho_antigo = os.path.join(pasta_user, f"{st.session_state.conversa_id}.json")
+                    caminho_novo = os.path.join(pasta_user, f"{novo_nome}.json")
+
+                    if not os.path.exists(caminho_novo):
+                        os.rename(caminho_antigo, caminho_novo)
+
+                        if "conversas" in st.session_state:
+                            st.session_state.conversas[novo_nome] = st.session_state.conversas.pop(
+                                st.session_state.conversa_id, []
+                            )
+
+                        st.session_state.conversa_id = novo_nome
+
                 st.rerun()
+
 
 
     # Mostrar histórico 
@@ -591,15 +827,35 @@ with tab1:
         )
         submitted = st.form_submit_button("Enviar")
 
-        # ✅ NOVA VERSÃO (mantém o input limpo sem erro)
         if submitted and user_input.strip():
-            pergunta = user_input  # guarda o valor antes de limpar
+            pergunta = user_input
             st.session_state.primeira_interacao = False
+
             st.session_state.chat_history.append({"role": "user", "content": pergunta})
             resposta = responder_pergunta(pergunta)
             st.session_state.chat_history.append({"role": "assistant", "content": resposta})
-            st.session_state.reset_input = True  # ativa sinalizador para limpar
+
+            # ✅ Renomear conversa se ainda estiver com nome genérico
+            if st.session_state.conversa_id.startswith("conversa_"):
+                novo_nome = gerar_nome_conversa_baseado_na_pergunta(pergunta)
+
+                pasta_user = f"historico_data/user_{st.session_state.user_id}"
+                caminho_antigo = os.path.join(pasta_user, f"{st.session_state.conversa_id}.json")
+                caminho_novo = os.path.join(pasta_user, f"{novo_nome}.json")
+
+                if not os.path.exists(caminho_novo):
+                    os.rename(caminho_antigo, caminho_novo)
+
+                    if "conversas" in st.session_state:
+                        st.session_state.conversas[novo_nome] = st.session_state.conversas.pop(
+                            st.session_state.conversa_id, []
+                        )
+
+                    st.session_state.conversa_id = novo_nome
+
+            st.session_state.reset_input = True
             st.rerun()
+
 
         # ❌ VERSÃO ANTIGA (com erro, deixada aqui comentada como referência)
         # if submitted and user_input.strip():

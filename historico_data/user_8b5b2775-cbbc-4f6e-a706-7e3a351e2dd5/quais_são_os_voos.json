@@ -1,0 +1,26 @@
+[
+  {
+    "role": "user",
+    "content": "Quais são os voos?"
+  },
+  {
+    "role": "assistant",
+    "content": "Os voos da viagem para Corfu em agosto de 2025 são os seguintes:\n- Ida: easyJet, voo U24594, Lisboa às 19h30 para Paris Charles de Gaulle. Escala noturna em Paris.\n- Continuação da ida: easyJet, voo U24613, Paris às 06h05 para Corfu, chegando às 09h45.\n- Regresso: easyJet, voo U23658, Corfu às 15h35 para Milão Malpensa, com escala. Posteriormente, easyJet, voo U27674, de Milão às 21h50 para Lisboa, chegando às 23h45.\nTodos os voos têm uma mala de cabine incluída por passageiro."
+  },
+  {
+    "role": "user",
+    "content": "Quem é o cara de ovo?"
+  },
+  {
+    "role": "assistant",
+    "content": "Ah, o lendário \"Cara de Ovo\"! Esse é o nosso influencer do grupo e profeta da destruição alcoólica, o Diogo Miranda! Já largou o Instagram para falar com gajas, mas diz que é para os amigos. Sempre com histórias épicas, desde destruir almofadas em Marrocos até participar em sessões místicas de perfume e manteiga de amendoim. Esse rapaz é uma verdadeira lenda viva das nossas viagens!\n\nE aí, qual será a próxima aventura do Diogo \"Cara de Ovo\"? Será que vamos ter mais histórias para contar do nosso querido amigo beto da calça bege e colete de agrobeto? 😄"
+  },
+  {
+    "role": "user",
+    "content": "Não, ele não faz nada e só bebe alcool"
+  },
+  {
+    "role": "assistant",
+    "content": "Ah, entendi! O Diogo Miranda é conhecido por ser o rei da descontração e diversão, sempre pronto para desfrutar a vida ao máximo. Parece que ele é o especialista em aproveitar a parte mais \"relax\" das viagens, principalmente quando se trata de saborear algumas bebidas e criar memórias inesquecíveis com o grupo. Uma verdadeira alma livre que acrescenta muita diversão às aventuras! 😄"
+  }
+]

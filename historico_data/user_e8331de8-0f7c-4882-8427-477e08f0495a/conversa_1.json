@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "content": "Quais são os voos?"
+  },
+  {
+    "role": "assistant",
+    "content": "Os voos para a viagem a Corfu em agosto de 2025 são os seguintes:\n- Ida: Lisboa → Corfu (com escala em Paris)\n  - Voo 1:\n    - Companhia: easyJet\n    - Nº Voo: U24594\n    - Partida: Lisboa (LIS) às 19h30\n    - Chegada: Paris Charles de Gaulle (CDG) às 23h05\n    - Duração: 2h35\n    - Avião: Airbus A319\n  - Escala noturna em Paris\n  - Voo 2:\n    - Companhia: easyJet\n    - Nº Voo: U24613\n    - Partida: Paris (CDG) às 06h05\n    - Chegada: Corfu (CFU) às 09h45\n    - Duração: 2h40\n    - Avião: Airbus A320\n\n- Regresso: Corfu → Lisboa (com escala em Milão)\n  - Voo 3:\n    - Companhia: easyJet\n    - Nº Voo: U23658\n    - Partida: Corfu (CFU) às 15h35\n    - Chegada: Milão Malpensa (MXP) às 16h40\n    - Duração: 2h05\n    - Avião: Airbus A320\n  - Escala em Milão\n  - Voo 4:\n    - Companhia: easyJet\n    - Nº Voo: U27674\n    - Partida: Milão (MXP) às 21h50\n    - Chegada: Lisboa (LIS) às 23h45\n    - Duração: 2h55\n    - Avião: Airbus A321"
+  }
+]
