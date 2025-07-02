@@ -90,9 +90,9 @@ if st.session_state.conversa_id not in conversas_disponiveis:
 
 # Sidebar interativa
 with st.sidebar:
-    st.markdown("## 🧠 Sessão")
-    st.write(f"👤 User ID: `{st.session_state.user_id}`")
-    st.write(f"💬 Conversa ID: `{st.session_state.conversa_id}`")
+    # st.markdown("## 🧠 Sessão")
+    # st.write(f"👤 User ID: `{st.session_state.user_id}`")
+    # st.write(f"💬 Conversa ID: `{st.session_state.conversa_id}`")
 
     # Seletor de conversas existentes
     conversa_escolhida = st.radio(
@@ -651,7 +651,7 @@ with tab1:
     st.title("🌴 Chatbot da Viagem a Corfu")
 
     # ✅ Modo de depuração para ver memória da sessão
-    debug_mode = st.sidebar.checkbox("🛠️ Mostrar memória da sessão", value=False)
+    # debug_mode = st.sidebar.checkbox("🛠️ Mostrar memória da sessão", value=False)
 
 
     if not st.session_state.chat_history:
@@ -761,54 +761,54 @@ with tab1:
             st.markdown(msg["content"])
 
     # ✅ Mostrar conteúdo da memória, se debug_mode estiver ativo
-    if debug_mode:
-        memory = st.session_state.memory
-        st.divider()
+    # if debug_mode:
+    #     memory = st.session_state.memory
+    #     st.divider()
 
-        st.sidebar.subheader("📜 Memória formatada para o modelo (roles corrigidos)")
-        for i, m in enumerate(memory.chat_memory.messages):
-            role = "user" if m.type == "human" else "assistant"
-            st.sidebar.markdown(f"**{i+1}. {role.upper()}**")
-            st.sidebar.code(m.content, language="markdown")
+    #     st.sidebar.subheader("📜 Memória formatada para o modelo (roles corrigidos)")
+    #     for i, m in enumerate(memory.chat_memory.messages):
+    #         role = "user" if m.type == "human" else "assistant"
+    #         st.sidebar.markdown(f"**{i+1}. {role.upper()}**")
+    #         st.sidebar.code(m.content, language="markdown")
 
-        with st.expander("🧠 Conteúdo atual da memória (LangChain)"):
-            if not memory.chat_memory.messages:
-                st.markdown("❌ *A memória está vazia. Nada foi guardado.*")
-            else:
-                st.subheader("📨 LangChain Memory")
-                for i, m in enumerate(memory.chat_memory.messages):
-                    st.markdown(f"**{i+1}. {m.type.upper()}**")
-                    st.code(m.content, language="markdown")
+    #     with st.expander("🧠 Conteúdo atual da memória (LangChain)"):
+    #         if not memory.chat_memory.messages:
+    #             st.markdown("❌ *A memória está vazia. Nada foi guardado.*")
+    #         else:
+    #             st.subheader("📨 LangChain Memory")
+    #             for i, m in enumerate(memory.chat_memory.messages):
+    #                 st.markdown(f"**{i+1}. {m.type.upper()}**")
+    #                 st.code(m.content, language="markdown")
 
-                st.subheader("🧱 Representação bruta da memória (debug avançado)")
-                for i, m in enumerate(memory.chat_memory.messages):
-                    st.code(repr(m), language="python")
+    #             st.subheader("🧱 Representação bruta da memória (debug avançado)")
+    #             for i, m in enumerate(memory.chat_memory.messages):
+    #                 st.code(repr(m), language="python")
 
-                if any(m.content.strip() == "" for m in memory.chat_memory.messages):
-                    st.warning("⚠️ Há mensagens com conteúdo vazio na memória.")
+    #             if any(m.content.strip() == "" for m in memory.chat_memory.messages):
+    #                 st.warning("⚠️ Há mensagens com conteúdo vazio na memória.")
 
-                if st.session_state.chat_history:
-                    st.subheader("🧾 Histórico Visual (chat_history)")
-                    for i, m in enumerate(st.session_state.chat_history):
-                        st.markdown(f"**{i+1}. {m['role'].upper()}**")
-                        st.code(m["content"], language="markdown")
+    #             if st.session_state.chat_history:
+    #                 st.subheader("🧾 Histórico Visual (chat_history)")
+    #                 for i, m in enumerate(st.session_state.chat_history):
+    #                     st.markdown(f"**{i+1}. {m['role'].upper()}**")
+    #                     st.code(m["content"], language="markdown")
 
-                # 🧹 Botão para limpar tudo
-                if st.button("🧹 Limpar memória da sessão"):
-                    memory.clear()
-                    st.session_state.chat_history = []
-                    st.session_state.mensagens = []
-                    st.success("✅ Memória e histórico visual limpos com sucesso.")
-                    st.rerun()
+    #             # 🧹 Botão para limpar tudo
+    #             if st.button("🧹 Limpar memória da sessão"):
+    #                 memory.clear()
+    #                 st.session_state.chat_history = []
+    #                 st.session_state.mensagens = []
+    #                 st.success("✅ Memória e histórico visual limpos com sucesso.")
+    #                 st.rerun()
 
-        # 📤 Mostrar prompt enviado ao modelo
-        if "mensagens" in st.session_state and st.session_state.mensagens:
-            st.sidebar.subheader("📤 Prompt enviado ao modelo (última interação)")
-            for i, m in enumerate(st.session_state.mensagens):
-                st.sidebar.markdown(f"**{i+1}. {m['role'].upper()}**")
-                st.sidebar.code(m["content"], language="markdown")
-        else:
-            st.sidebar.markdown("⚠️ *O prompt enviado ao modelo ainda não foi guardado.*")
+    #     # 📤 Mostrar prompt enviado ao modelo
+    #     if "mensagens" in st.session_state and st.session_state.mensagens:
+    #         st.sidebar.subheader("📤 Prompt enviado ao modelo (última interação)")
+    #         for i, m in enumerate(st.session_state.mensagens):
+    #             st.sidebar.markdown(f"**{i+1}. {m['role'].upper()}**")
+    #             st.sidebar.code(m["content"], language="markdown")
+    #     else:
+    #         st.sidebar.markdown("⚠️ *O prompt enviado ao modelo ainda não foi guardado.*")
 
 
 
